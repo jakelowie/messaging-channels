@@ -35,10 +35,43 @@ So the browser calls the relative `/api/...` path, and Vite's built-in dev/previ
 - it **removes** any `Authorization` or `Cookie` header the browser sent;
 - it **adds** `Authorization: $MESSAGING_API_TOKEN` server-side.
 
-No new service is involved: the proxy runs inside the dev server you already start. This
-means the tool is meant to be **run locally**. To host it for a team, put the same logic in a
-small server-side proxy (for example a Lambda or the existing messaging-api-gateway) behind
-corporate SSO, and serve the static `dist/` from there. That isn't built here.
+Locally, no new service is involved: the proxy runs inside the dev server you already start.
+When hosted on Vercel, the serverless function `api/search/channels.ts` does the same job (see
+[Deploying to Vercel](#deploying-to-vercel)).
+
+## Deploying to Vercel
+
+`vite build` only produces static files, and the Vite proxy above doesn't exist in production.
+On Vercel, **`api/search/channels.ts`** takes its place: it forwards only the query string of
+`GET /api/search/channels` to `MESSAGING_API_URL` with `Authorization: $MESSAGING_API_TOKEN`,
+and it never forwards browser headers. It forwards just this one endpoint, not all of `/api/*`.
+It returns an empty 500 if the env vars are missing and an empty 502 if the API is unreachable
+or takes longer than 9 seconds. Its tests are in `tests/api/` (kept out of `api/` because Vercel
+deploys every file in `api/` as a function).
+
+1. **Import the repo** in Vercel (**Add New → Project**), or run `npx vercel link` from the CLI.
+   The **Vite** preset is detected: build `npm run build`, output `dist`. Under
+   Settings → General, set Node.js to **20.x or later**.
+2. **Environment variables** (Settings → Environment Variables), for Production and, if you
+   want, Preview:
+   - `MESSAGING_API_URL`: API base URL **without** `/api`
+   - `MESSAGING_API_TOKEN`: from the team secret store; mark it **Sensitive**
+
+   Never use a `VITE_` prefix for these, because `VITE_` variables are bundled into the browser.
+3. **Deployment Protection** (Settings → Deployment Protection): turn it on for **all**
+   deployments, including Production (Vercel Authentication, Password, or Trusted IPs).
+   The function attaches a shared service token to every request, so anyone who can open the
+   URL can search channel data.
+4. **Deploy**: push to `main` (Git integration), or run `npx vercel --prod`. Pushes to other
+   branches get preview URLs.
+5. **Verify**: run a search on the deployed URL. If it fails, check Deployments → (latest) →
+   Logs for `[api/search/channels]` messages.
+
+**Network reachability:** Vercel functions run on the public internet. If the messaging API is
+only reachable over VPN or from allowlisted IPs, every search will fail with a 502 (a timeout or
+`fetch failed` in the logs). The API needs to be reachable from Vercel (for example, Vercel
+Static IPs on a paid plan added to its allowlist). Otherwise, host the app inside the network
+instead, for example behind the existing messaging-api-gateway with corporate SSO.
 
 ## API contract (discovered from the Go source)
 
@@ -123,6 +156,8 @@ src/
   types/       channel.ts                mirrors the Go structs
   utils/       searchForm.ts (validation → params), format.ts
   test/        setup + fixtures
+api/search/channels.ts   Vercel function: production replacement for the Vite proxy
+tests/api/               tests for the Vercel function
 ```
 
 Tests use Vitest + Testing Library. This matches chime-messaging-ui's Jest/RTL style, with the
