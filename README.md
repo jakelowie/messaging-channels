@@ -160,6 +160,3 @@ tests/api/               tests for the Vercel function
 
 Tests use Vitest + Testing Library. This matches chime-messaging-ui's Jest/RTL style, with the
 Vite-native runner.
-
-
-## Private Repo
