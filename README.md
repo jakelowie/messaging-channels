@@ -1,11 +1,9 @@
 # search-messaging-channels
-
 A small internal React + TypeScript tool for searching the `messaging-channels` index through
 chime-messaging-go-api's existing **`GET /api/search/channels`** endpoint. It lets you search
 without Postman/Insomnia or direct OpenSearch queries. The Go API is used exactly as it is.
 
 ## Quick start
-
 Requires Node 20+ and network/VPN access to the messaging API.
 
 ```bash
@@ -162,3 +160,6 @@ tests/api/               tests for the Vercel function
 
 Tests use Vitest + Testing Library. This matches chime-messaging-ui's Jest/RTL style, with the
 Vite-native runner.
+
+
+## Private Repo
