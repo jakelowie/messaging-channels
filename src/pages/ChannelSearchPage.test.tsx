@@ -297,5 +297,24 @@ describe('ChannelSearchPage', () => {
       await waitFor(() => expect(screen.getAllByRole('button', { name: /^Messages for/ })).toHaveLength(20));
       expect(peak).toBeLessThanOrEqual(MESSAGES_CONCURRENCY);
     });
+
+    it('shows how many channels on the page have messages above the table', async () => {
+      const memberships = [makeMembership(), makeMembership(), makeMembership()];
+      const empty = memberships[1].ChannelSummary.ChannelArn;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const { user } = setupWithMessages(async ({ channelArn }) => {
+        await gate;
+        return channelArn === empty ? [] : [makeMessage()];
+      }, memberships);
+      await runSearch(user);
+
+      const summary = screen.getByText(/Channel with Message :/);
+      expect(summary).toHaveTextContent('Channel with Message : 0 (checking 3 more…)');
+
+      release();
+      await waitFor(() => expect(summary).toHaveTextContent(/^Channel with Message : 2$/));
+      expect(screen.getByTestId('channels-with-messages')).toHaveTextContent('2');
+    });
   });
 });

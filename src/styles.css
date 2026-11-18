@@ -165,3 +165,6 @@ code { font-family: var(--mono); font-size: 0.92em; }
   .results-table__messages-row > td { display: block !important; padding: 10px 12px; }
   .results-table__messages-row > td::before { content: none; }
 }
+.results-table__summary { margin: 0; font-size: 0.95rem; }
+.results-table__summary strong { color: #1a7f45; }
+.results-table__summary-note { color: var(--muted); font-size: 0.85rem; }

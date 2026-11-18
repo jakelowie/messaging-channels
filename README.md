@@ -68,6 +68,9 @@ Opening a channel shows the messages already fetched; it doesn't call the API ag
 or page cancels any checks still running. `LastMessageTimestamp` from the search is not used to
 decide this, because it isn't a reliable signal.
 
+Above the table, **Channel with Message : N** counts the channels on the current page that have
+messages. While checks are still running it adds "(checking N more…)".
+
 The API lists messages as a specific channel member (`messagingUserId`). The tool uses the
 **Messaging User ID** from the search if you entered one, and otherwise the channel's admin
 (`Metadata.Admin`).
