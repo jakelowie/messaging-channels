@@ -2,8 +2,11 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ChannelApiError } from '../services/channelApi';
-import type { SearchChannelsParams, SearchChannelsResult } from '../types/channel';
-import { makeMembership, makeMetadata, makeResult } from '../test/fixtures';
+import type { ChannelMembership, SearchChannelsParams, SearchChannelsResult } from '../types/channel';
+import type { ChannelMessage } from '../types/message';
+import { MESSAGES_CONCURRENCY } from '../hooks/useChannelMessages';
+import { makeMembership, makeMessage, makeMetadata, makeResult } from '../test/fixtures';
+import type { ListMessagesFn } from '../components/ChannelMessages';
 import { ChannelSearchPage } from './ChannelSearchPage';
 
 type SearchFn = (params: SearchChannelsParams, opts?: { signal?: AbortSignal }) => Promise<SearchChannelsResult>;
@@ -11,7 +14,7 @@ type SearchFn = (params: SearchChannelsParams, opts?: { signal?: AbortSignal }) 
 function setup(searchFn: SearchFn) {
   const fn = vi.fn(searchFn);
   const user = userEvent.setup();
-  render(<ChannelSearchPage searchFn={fn} />);
+  render(<ChannelSearchPage searchFn={fn} listMessagesFn={async () => []} />);
   return { fn, user };
 }
 
@@ -171,5 +174,128 @@ describe('ChannelSearchPage', () => {
     expect(jobInput).toHaveValue('');
     await waitFor(() => expect(screen.queryByText('To clear')).not.toBeInTheDocument());
     expect(screen.getByText(/enter one or more filters/i)).toBeInTheDocument();
+  });
+
+
+  describe('Messages button', () => {
+    function setupWithMessages(
+      listMessagesFn: ListMessagesFn,
+      memberships: ChannelMembership[] = [makeMembership({ name: 'Msg channel' })],
+    ) {
+      const listFn = vi.fn(listMessagesFn);
+      const user = userEvent.setup();
+      render(<ChannelSearchPage searchFn={async () => makeResult(memberships)} listMessagesFn={listFn} />);
+      return { listFn, user, memberships };
+    }
+
+    async function runSearch(user: ReturnType<typeof userEvent.setup>, extra?: () => Promise<void>) {
+      await user.type(screen.getByLabelText('Job ID'), 'JOB-100');
+      await extra?.();
+      await submit(user);
+      await screen.findByRole('table');
+    }
+
+    it('checks every channel up front and turns the button green when it has messages', async () => {
+      const { listFn, user, memberships } = setupWithMessages(async () => [
+        makeMessage({ Content: 'Hi there', Sender: { Arn: 'arn:s1', Name: 'Jane Recruiter' } }),
+        makeMessage({ Content: 'Hello back', Sender: { Arn: 'arn:s2', Name: 'Sam Candidate' } }),
+      ]);
+      await runSearch(user);
+
+      const button = await screen.findByRole('button', { name: 'Messages for Msg channel' });
+      expect(button).toBeEnabled();
+      expect(button).toHaveClass('btn--success');
+      // Fetched without clicking, listed as the channel admin.
+      expect(listFn).toHaveBeenCalledTimes(1);
+      expect(listFn.mock.calls[0][0]).toEqual({
+        channelArn: memberships[0].ChannelSummary.ChannelArn,
+        messagingUserId: 'admin-user-1',
+      });
+
+      await user.click(button);
+      expect(screen.getByText('Hi there')).toBeInTheDocument();
+      expect(screen.getByText('Jane Recruiter')).toBeInTheDocument();
+      expect(screen.getByText('Hello back')).toBeInTheDocument();
+      expect(screen.getByText('Sam Candidate')).toBeInTheDocument();
+      // Opening reuses the prefetched messages and doesn't open the details pane.
+      expect(listFn).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('region', { name: 'Msg channel' })).not.toBeInTheDocument();
+
+      await user.click(button);
+      expect(screen.queryByText('Hi there')).not.toBeInTheDocument();
+    });
+
+    it('disables the button while checking and when the channel has no messages', async () => {
+      let resolve!: (messages: ChannelMessage[]) => void;
+      const { user } = setupWithMessages(() => new Promise((r) => (resolve = r)));
+      await runSearch(user);
+
+      const checking = screen.getByRole('button', { name: 'Checking messages for Msg channel' });
+      expect(checking).toBeDisabled();
+
+      resolve([]);
+      const none = await screen.findByRole('button', { name: 'No messages for Msg channel' });
+      expect(none).toBeDisabled();
+      expect(none).not.toHaveClass('btn--success');
+      expect(none).toHaveAttribute('title', 'NO MESSAGES FOR THIS CHANNEL YET');
+    });
+
+    it('lists messages as the searched Messaging User ID when one was given', async () => {
+      const { listFn, user } = setupWithMessages(async () => []);
+      await runSearch(user, () => user.type(screen.getByLabelText('Messaging User ID'), 'searcher-1'));
+      await waitFor(() => expect(listFn).toHaveBeenCalled());
+      expect(listFn.mock.calls[0][0].messagingUserId).toBe('searcher-1');
+    });
+
+    it('keeps the button clickable on error and can retry', async () => {
+      let call = 0;
+      const { listFn, user } = setupWithMessages(async () => {
+        call += 1;
+        if (call === 1) throw new ChannelApiError('The messaging API is unavailable.', 503);
+        return [makeMessage({ Content: 'After retry' })];
+      });
+      await runSearch(user);
+
+      const button = await screen.findByRole('button', { name: 'Messages for Msg channel' });
+      await waitFor(() => expect(button).toBeEnabled());
+      expect(button).not.toHaveClass('btn--success');
+      await user.click(button);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(/unavailable/i);
+      await user.click(within(alert).getByRole('button', { name: /try again/i }));
+      expect(await screen.findByText('After retry')).toBeInTheDocument();
+      expect(listFn).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('button', { name: 'Messages for Msg channel' })).toHaveClass('btn--success');
+    });
+
+    it('does not call the API when the channel has no admin to list messages as', async () => {
+      const { listFn, user } = setupWithMessages(
+        async () => [],
+        [makeMembership({ name: 'Msg channel', metadata: makeMetadata({ Admin: '' }) })],
+      );
+      await runSearch(user);
+      await user.click(await screen.findByRole('button', { name: 'Messages for Msg channel' }));
+      expect(await screen.findByText(/has no admin/i)).toBeInTheDocument();
+      expect(listFn).not.toHaveBeenCalled();
+    });
+
+    it(`keeps at most ${MESSAGES_CONCURRENCY} requests in flight`, async () => {
+      let inFlight = 0;
+      let peak = 0;
+      const memberships = Array.from({ length: 20 }, () => makeMembership());
+      const { listFn, user } = setupWithMessages(async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight -= 1;
+        return [makeMessage()];
+      }, memberships);
+      await runSearch(user);
+
+      await waitFor(() => expect(listFn).toHaveBeenCalledTimes(20));
+      await waitFor(() => expect(screen.getAllByRole('button', { name: /^Messages for/ })).toHaveLength(20));
+      expect(peak).toBeLessThanOrEqual(MESSAGES_CONCURRENCY);
+    });
   });
 });

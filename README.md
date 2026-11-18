@@ -47,6 +47,31 @@ It returns an empty 500 if the env vars are missing and an empty 502 if the API 
 or takes longer than 9 seconds. Its tests are in `tests/api/` (kept out of `api/` because Vercel
 deploys every file in `api/` as a function).
 
+**`api/channel/list-messages.ts`** does the same for `POST /api/channel/list-messages` (used by
+the **Messages** button). It rebuilds the body so only `channelArn` and `messagingUserId` reach
+the API, and it returns an empty 400 if either one is missing.
+
+## Channel messages
+
+As soon as a page of results arrives, the tool calls `POST /api/channel/list-messages` (the same
+endpoint the `list-messages` Go tool uses) for every channel on the page, at most 6 at a time.
+Each row's **Messages** button reflects the result:
+
+| Button | Meaning |
+|---|---|
+| Disabled (grey) while loading | still checking this channel |
+| **Green** | the channel has messages; click to show the first 10 with each sender and time |
+| Disabled (grey) after loading | the channel has no messages (tooltip: **NO MESSAGES FOR THIS CHANNEL YET**) |
+| Grey but clickable | the check failed, or there was no member to list as; click for details and **Try again** |
+
+Opening a channel shows the messages already fetched; it doesn't call the API again. A new search
+or page cancels any checks still running. `LastMessageTimestamp` from the search is not used to
+decide this, because it isn't a reliable signal.
+
+The API lists messages as a specific channel member (`messagingUserId`). The tool uses the
+**Messaging User ID** from the search if you entered one, and otherwise the channel's admin
+(`Metadata.Admin`).
+
 1. **Import the repo** in Vercel (**Add New → Project**), or run `npx vercel link` from the CLI.
    The **Vite** preset is detected: build `npm run build`, output `dist`. Under
    Settings → General, set Node.js to **20.x or later**.
@@ -147,14 +172,16 @@ body**. This happens, for example, when `from + size > 10000` (OpenSearch's `max
 
 ```
 src/
-  components/  ChannelSearchForm, ChannelResultsTable, ChannelDetails, LoadingIndicator, ErrorMessage
+  components/  ChannelSearchForm, ChannelResultsTable, ChannelDetails, ChannelMessages, LoadingIndicator, ErrorMessage
   hooks/       useChannelSearch.ts       search state, abort, de-dupe, cache, paging
+               useChannelMessages.ts     prefetches messages per channel (6 at a time)
   pages/       ChannelSearchPage.tsx
-  services/    channelApi.ts             the only code that talks to the API
-  types/       channel.ts                mirrors the Go structs
+  services/    channelApi.ts, messageApi.ts  the only code that talks to the API
+  types/       channel.ts, message.ts    mirror the Go structs
   utils/       searchForm.ts (validation → params), format.ts
   test/        setup + fixtures
-api/search/channels.ts   Vercel function: production replacement for the Vite proxy
+api/search/channels.ts         Vercel function: production replacement for the Vite proxy
+api/channel/list-messages.ts   Vercel function: same, for the Messages button
 tests/api/               tests for the Vercel function
 ```
 

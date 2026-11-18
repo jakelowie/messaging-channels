@@ -1,4 +1,5 @@
 import type { ChannelMembership, ChannelMetadata, ChannelRecord, SearchChannelsResult } from '../types/channel';
+import type { ChannelMessage } from '../types/message';
 
 let counter = 0;
 
@@ -58,4 +59,22 @@ export function makeResult(memberships: ChannelMembership[]): SearchChannelsResu
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+let messageCounter = 0;
+
+export function makeMessage(overrides: Partial<ChannelMessage> = {}): ChannelMessage {
+  messageCounter += 1;
+  return {
+    Content: `Hello ${messageCounter}`,
+    CreatedTimestamp: '2026-11-02T15:30:00Z',
+    LastEditedTimestamp: null,
+    LastUpdatedTimestamp: '2026-11-02T15:30:00Z',
+    MessageId: `msg-${messageCounter}`,
+    Metadata: null,
+    Redacted: false,
+    Sender: { Arn: 'arn:aws:chime:us-east-1:1:app-instance/a/user/u1', Name: 'Jane Recruiter' },
+    Type: 'STANDARD',
+    ...overrides,
+  };
 }

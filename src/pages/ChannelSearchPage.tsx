@@ -7,13 +7,16 @@ import { LoadingIndicator } from '../components/LoadingIndicator';
 import { useChannelSearch } from '../hooks/useChannelSearch';
 import type { searchChannels } from '../services/channelApi';
 import type { ChannelRecord } from '../types/channel';
+import type { ListMessagesFn } from '../components/ChannelMessages';
 
 interface ChannelSearchPageProps {
   /** Injectable for tests. */
   searchFn?: typeof searchChannels;
+  /** Injectable for tests. */
+  listMessagesFn?: ListMessagesFn;
 }
 
-export function ChannelSearchPage({ searchFn }: ChannelSearchPageProps) {
+export function ChannelSearchPage({ searchFn, listMessagesFn }: ChannelSearchPageProps) {
   const search = useChannelSearch(searchFn);
   const [selected, setSelected] = useState<ChannelRecord | null>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
@@ -90,6 +93,8 @@ export function ChannelSearchPage({ searchFn }: ChannelSearchPageProps) {
                 channels={channels}
                 selectedArn={selected?.membership.ChannelSummary.ChannelArn ?? null}
                 onSelect={setSelected}
+                searchMessagingUserId={search.params?.messagingUserId}
+                listMessagesFn={listMessagesFn}
               />
 
               {pageable && (search.hasPrevPage || search.hasNextPage) && (
